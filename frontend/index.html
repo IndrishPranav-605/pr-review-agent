@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PR Review Agent</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 p-6">
+  <h1 class="text-3xl font-bold mb-6">🚀 PR Review Agent</h1>
+
+  <!-- Input Card -->
+  <div class="bg-white shadow rounded-xl p-6 mb-6">
+    <div class="grid gap-4">
+      <div>
+        <label class="block font-medium">Repo Owner</label>
+        <input id="owner" class="w-full border rounded p-2" placeholder="e.g., octocat" />
+      </div>
+      <div>
+        <label class="block font-medium">Repo Name</label>
+        <input id="repo" class="w-full border rounded p-2" placeholder="e.g., Hello-World" />
+      </div>
+      <div>
+        <label class="block font-medium">PR Number</label>
+        <input id="pr" type="number" class="w-full border rounded p-2" placeholder="e.g., 4338" />
+      </div>
+      <div>
+        <label class="block font-medium">Query (optional)</label>
+        <input id="query" class="w-full border rounded p-2" placeholder="explain issues in plain English" />
+      </div>
+      <div class="flex gap-4 items-center">
+        <label><input id="inline" type="checkbox" checked /> Inline comments</label>
+        <label><input id="nl" type="checkbox" /> Natural language summary</label>
+      </div>
+      <button type="button" onclick="run()"
+        class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg">
+        🔍 Run Review
+      </button>
+    </div>
+  </div>
+
+  <!-- Results Card -->
+  <div class="bg-white shadow rounded-xl p-6">
+    <h2 class="text-xl font-semibold mb-4">Results</h2>
+    <div id="summaryBox" class="mb-4 text-lg font-medium"></div>
+    <div id="scoreBox" class="mb-4"></div>
+
+    <!-- Chart -->
+    <div class="mb-6">
+      <canvas id="issuesChart" width="400" height="200"></canvas>
+    </div>
+
+    <!-- Findings Table -->
+    <table id="commentsTable" class="hidden w-full text-left border-collapse">
+      <thead>
+        <tr class="bg-gray-100">
+          <th class="border px-2 py-1">File</th>
+          <th class="border px-2 py-1">Line</th>
+          <th class="border px-2 py-1">Feedback</th>
+        </tr>
+      </thead>
+      <tbody id="commentsBody"></tbody>
+    </table>
+  </div>
+
+  <script>
+    let chart; // chart instance
+
+    function colorScore(score) {
+      if (score >= 80) return "text-green-600";
+      if (score >= 50) return "text-yellow-600";
+      return "text-red-600";
+    }
+
+    async function run() {
+      const body = {
+        repo_owner: document.getElementById('owner').value,
+        repo_name: document.getElementById('repo').value,
+        pr_number: Number(document.getElementById('pr').value),
+        inline: document.getElementById('inline').checked,
+        natural_language: document.getElementById('nl').checked,
+        query: document.getElementById('query').value
+      };
+
+      const res = await fetch('/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      const data = await res.json();
+
+      // Show summary & score
+      document.getElementById('summaryBox').textContent = data.summary || '';
+      document.getElementById('scoreBox').innerHTML =
+        `<span class="font-bold ${colorScore(data.score)}">Score: ${data.score}/100</span>`;
+
+      // Populate findings table
+      const tbody = document.getElementById('commentsBody');
+      tbody.innerHTML = '';
+      (data.comments || []).forEach(c => {
+        const row = `<tr>
+          <td class="border px-2 py-1">${c.file}</td>
+          <td class="border px-2 py-1">${c.line || '-'}</td>
+          <td class="border px-2 py-1">${c.feedback}</td>
+        </tr>`;
+        tbody.insertAdjacentHTML('beforeend', row);
+      });
+      document.getElementById('commentsTable').classList.remove('hidden');
+
+      // Build chart data (group by keyword in feedback)
+      const counts = {};
+      (data.comments || []).forEach(c => {
+        const key = detectRule(c.feedback);
+        counts[key] = (counts[key] || 0) + 1;
+      });
+
+      const labels = Object.keys(counts);
+      const values = Object.values(counts);
+
+      if (chart) chart.destroy(); // reset old chart
+      const ctx = document.getElementById('issuesChart');
+      chart = new Chart(ctx, {
+        type: 'pie',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Findings by type',
+            data: values,
+            backgroundColor: [
+              '#f87171', // red
+              '#facc15', // yellow
+              '#60a5fa', // blue
+              '#34d399', // green
+              '#a78bfa'  // purple
+            ]
+          }]
+        }
+      });
+    }
+
+    // Quick keyword-based rule detection for chart
+    function detectRule(feedback) {
+      if (/secret|credential|password/i.test(feedback)) return "Secrets";
+      if (/security|dangerous|eval|exec/i.test(feedback)) return "Security";
+      if (/complex/i.test(feedback)) return "Complexity";
+      if (/docstring/i.test(feedback)) return "Docs";
+      if (/style|whitespace|line/i.test(feedback)) return "Style";
+      return "Other";
+    }
+  </script>
+</body>
+</html>
