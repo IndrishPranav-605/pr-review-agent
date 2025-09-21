@@ -41,6 +41,6 @@ export $(grep -v '^#' .env | xargs) # Windows: set manually
 
 5. RUN
 
-uvicorn main:app --reload --port 8000
+uvicorn main:app --reload --port 8010
 
-6. Open UI: http://localhost:8000
+6. Open UI: http://localhost:8010
